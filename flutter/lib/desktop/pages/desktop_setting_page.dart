@@ -2039,7 +2039,7 @@ Widget _OptionCheckBox(
 
   if (fakeValue != null) {
     ref.value = fakeValue;
-    enabled = false;
+    enabled = true;
   }
 
   return GestureDetector(
