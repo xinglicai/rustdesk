@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -71,7 +70,7 @@ void changeIdDialog() {
   final rules = [
     RegexValidationRule('starts with a letter', RegExp(r'^[a-zA-Z]')),
     LengthRangeValidationRule(6, 16),
-    RegexValidationRule('allowed characters', RegExp(r'^\w*$'))
+    RegexValidationRule('allowed characters', RegExp(r'^[\w-]*$'))
   ];
 
   gFFI.dialogManager.show((setState, close, context) {
@@ -412,24 +411,38 @@ class DialogTextField extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: TextField(
-            decoration: InputDecoration(
-              labelText: title,
-              hintText: hintText,
-              prefixIcon: prefixIcon,
-              suffixIcon: suffixIcon,
-              helperText: helperText,
-              helperMaxLines: 8,
-              errorText: errorText,
-              errorMaxLines: 8,
-            ),
-            controller: controller,
-            focusNode: focusNode,
-            autofocus: true,
-            obscureText: obscureText,
-            keyboardType: keyboardType,
-            inputFormatters: inputFormatters,
-            maxLength: maxLength,
+          child: Column(
+            children: [
+              TextField(
+                decoration: InputDecoration(
+                  labelText: title,
+                  hintText: hintText,
+                  prefixIcon: prefixIcon,
+                  suffixIcon: suffixIcon,
+                  helperText: helperText,
+                  helperMaxLines: 8,
+                ),
+                controller: controller,
+                focusNode: focusNode,
+                autofocus: true,
+                obscureText: obscureText,
+                keyboardType: keyboardType,
+                inputFormatters: inputFormatters,
+                maxLength: maxLength,
+              ),
+              if (errorText != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SelectableText(
+                    errorText!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.left,
+                  ).paddingOnly(top: 8, left: 12),
+                ),
+            ],
           ).workaroundFreezeLinuxMint(),
         ),
       ],
@@ -806,23 +819,33 @@ void enterPasswordDialog(
 }
 
 void enterUserLoginDialog(
-    SessionID sessionId, OverlayDialogManager dialogManager) async {
+    SessionID sessionId,
+    OverlayDialogManager dialogManager,
+    String osAccountDescTip,
+    bool canRememberAccount) async {
   await _connectDialog(
     sessionId,
     dialogManager,
     osUsernameController: TextEditingController(),
     osPasswordController: TextEditingController(),
+    osAccountDescTip: osAccountDescTip,
+    canRememberAccount: canRememberAccount,
   );
 }
 
 void enterUserLoginAndPasswordDialog(
-    SessionID sessionId, OverlayDialogManager dialogManager) async {
+    SessionID sessionId,
+    OverlayDialogManager dialogManager,
+    String osAccountDescTip,
+    bool canRememberAccount) async {
   await _connectDialog(
     sessionId,
     dialogManager,
     osUsernameController: TextEditingController(),
     osPasswordController: TextEditingController(),
     passwordController: TextEditingController(),
+    osAccountDescTip: osAccountDescTip,
+    canRememberAccount: canRememberAccount,
   );
 }
 
@@ -832,17 +855,28 @@ _connectDialog(
   TextEditingController? osUsernameController,
   TextEditingController? osPasswordController,
   TextEditingController? passwordController,
+  String? osAccountDescTip,
+  bool canRememberAccount = true,
 }) async {
+  final errUsername = ''.obs;
   var rememberPassword = false;
   if (passwordController != null) {
     rememberPassword =
         await bind.sessionGetRemember(sessionId: sessionId) ?? false;
   }
   var rememberAccount = false;
-  if (osUsernameController != null) {
+  if (canRememberAccount && osUsernameController != null) {
     rememberAccount =
         await bind.sessionGetRemember(sessionId: sessionId) ?? false;
   }
+  if (osUsernameController != null) {
+    osUsernameController.addListener(() {
+      if (errUsername.value.isNotEmpty) {
+        errUsername.value = '';
+      }
+    });
+  }
+
   dialogManager.dismissAll();
   dialogManager.show((setState, close, context) {
     cancel() {
@@ -851,6 +885,13 @@ _connectDialog(
     }
 
     submit() {
+      if (osUsernameController != null) {
+        if (osUsernameController.text.trim().isEmpty) {
+          errUsername.value = translate('Empty Username');
+          setState(() {});
+          return;
+        }
+      }
       final osUsername = osUsernameController?.text.trim() ?? '';
       final osPassword = osPasswordController?.text.trim() ?? '';
       final password = passwordController?.text.trim() ?? '';
@@ -914,26 +955,39 @@ _connectDialog(
       }
       return Column(
         children: [
-          descWidget(translate('login_linux_tip')),
+          if (osAccountDescTip != null) descWidget(translate(osAccountDescTip)),
           DialogTextField(
             title: translate(DialogTextField.kUsernameTitle),
             controller: osUsernameController,
             prefixIcon: DialogTextField.kUsernameIcon,
             errorText: null,
           ),
+          if (errUsername.value.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SelectableText(
+                errUsername.value,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.left,
+              ).paddingOnly(left: 12, bottom: 2),
+            ),
           PasswordWidget(
             controller: osPasswordController,
             autoFocus: false,
           ),
-          rememberWidget(
-            translate('remember_account_tip'),
-            rememberAccount,
-            (v) {
-              if (v != null) {
-                setState(() => rememberAccount = v);
-              }
-            },
-          ),
+          if (canRememberAccount)
+            rememberWidget(
+              translate('remember_account_tip'),
+              rememberAccount,
+              (v) {
+                if (v != null) {
+                  setState(() => rememberAccount = v);
+                }
+              },
+            ),
         ],
       );
     }
@@ -1123,7 +1177,7 @@ void showRequestElevationDialog(
               DialogTextField(
                 controller: userController,
                 title: translate('Username'),
-                hintText: translate('eg: admin'),
+                hintText: translate('elevation_username_tip'),
                 prefixIcon: DialogTextField.kUsernameIcon,
                 errorText: errUser.isEmpty ? null : errUser.value,
               ),
@@ -1608,6 +1662,28 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
       showFps: !hideFps,
       showMoreQuality: !hideMoreQuality);
   msgBoxCommon(ffi.dialogManager, 'Custom Image Quality', content, [btnClose]);
+}
+
+trackpadSpeedDialog(SessionID sessionId, FFI ffi) async {
+  int initSpeed = ffi.inputModel.trackpadSpeed;
+  final curSpeed = SimpleWrapper(initSpeed);
+  final btnClose = dialogButton('Close', onPressed: () async {
+    if (curSpeed.value <= kMaxTrackpadSpeed &&
+        curSpeed.value >= kMinTrackpadSpeed &&
+        curSpeed.value != initSpeed) {
+      await bind.sessionSetTrackpadSpeed(
+          sessionId: sessionId, value: curSpeed.value);
+      await ffi.inputModel.updateTrackpadSpeed();
+    }
+    ffi.dialogManager.dismissAll();
+  });
+  msgBoxCommon(
+      ffi.dialogManager,
+      'Trackpad speed',
+      TrackpadSpeedWidget(
+        value: curSpeed,
+      ),
+      [btnClose]);
 }
 
 void deleteConfirmDialog(Function onSubmit, String title) async {
